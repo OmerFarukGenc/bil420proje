@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PeerJS Example</title>
+    <link rel="stylesheet" href="https://unpkg.com/sakura.css/css/sakura.css" media="screen" />
+    <link rel="stylesheet" href="https://unpkg.com/sakura.css/css/sakura-dark.css"
+        media="screen and (prefers-color-scheme: dark)" />
+</head>
+
+<body>
+
+    <p id="yourId"></p>
+
+    <label for="ID">ID</label>
+
+
+    <p id="privateKey"></p>
+    <p id="publicKey"></p>
+
+    <label for="activeIds">Active IDs:</label>
+
+    <ul id="activeIdSelect">
+
+    </ul>
+
+
+    <br>
+    <input type="text" name="targetID" id="targetID">
+    <br>
+    <input type="file" id="fileUploadInput" name="filename">
+    <button type="button" id="sendFileButton">Send File</button>
+
+
+    <script src="/peer.js"></script>
+    <script>
+
+        function generateRandomString(length) {
+            const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let result = '';
+
+            for (let i = 0; i < length; i++) {
+                const randomIndex = Math.floor(Math.random() * characters.length);
+                result += characters.charAt(randomIndex);
+            }
+
+            return result;
+        }
+
+
+        const ID = generateRandomString(10);
+        document.getElementById("yourId").innerText = `Your ID is ${ID}`;
+        let publicKey;
+        let privateKey;
+
+        const generateKeys = async () => {
+            const keyPair = await crypto.subtle.generateKey(
+                {
+                    name: 'RSA-OAEP',
+                    modulusLength: 2048,
+                    publicExponent: new Uint8Array([0x01, 0x00, 0x01]), // 65537
+                    hash: 'SHA-256',
+                },
+                true,
+                ['encrypt', 'decrypt']
+            );
+
+            publicKey = keyPair.publicKey;
+
+
+            document.getElementById("publicKey").innerText = publicKey;
+
+            privateKey = keyPair.privateKey;
+
+            document.getElementById("privateKey").innerHTML = privateKey;
+
+            setInterval(() => {
+                console.log("in interval");
+                console.log(ID, publicKey);
+                crypto.subtle.exportKey('raw', publicKey).then(
+                    key => {
+                        fetch('/addId', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json', // Adjust the content type based on your server expectations
+                            },
+                            body: JSON.stringify({ ID, publickey:key }),
+                        });
+                    }
+                )
+
+            }, 1000);
+        }
+
+        generateKeys();
+
+        let currentID;
+        const targetIDInputElement = document.getElementById("targetID");
+
+        const sendFileButton = document.getElementById("sendFileButton");
+        const fileUploadInputElement = document.getElementById("fileUploadInput");
+
+
+
+        const activeIdsSelectElement = document.getElementById("activeIdSelect");
+
+
+
+        const fetchAndDisplayActiveIds = () => {
+
+            fetch("/getCurrentIds").then(res => res.json()).then(json => {
+                activeIdsSelectElement.innerHTML = "";
+                for (let i = 0; i < json.length; i++) {
+                    activeIdsSelectElement.innerHTML += `
+        <li>${json[i]}</li>
+                `;
+                }
+
+            })
+        }
+
+        fetchAndDisplayActiveIds();
+        setInterval(fetchAndDisplayActiveIds, 1000)
+
+        let peer = null;
+
+        peer = new Peer(ID, {
+
+            host: 'localhost',    // Specify the PeerServer host (change to your server)
+            port: 3000,            // Specify the PeerServer port (change to your server's port)
+            path: '/peerjs'
+        });
+
+        peer.on('open', (id) => {
+            console.log('My peer ID is: ' + id);
+        });
+
+        peer.on('connection', (connection) => {
+            console.log('Connected to peer:', connection.peer);
+
+            connection.on("open", () => {
+                connection.on('data', (data) => {
+                    console.log("####");
+                    console.log(data);
+
+
+
+                    const blob = new Blob([data], { type: 'application/octet-stream' });
+
+                    // Create a download link
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = URL.createObjectURL(blob);
+
+                    // Set the download attribute with the desired file name
+                    downloadLink.download = 'downloaded_file.bin'; // Replace with your desired file name
+
+                    // Append the download link to the body
+                    document.body.appendChild(downloadLink);
+
+                    // Trigger a click event on the download link
+                    downloadLink.click();
+
+                    // Remove the download link from the body
+                    document.body.removeChild(downloadLink);
+
+
+
+
+                });
+            })
+
+            // Event handler for receiving data from the connected peer
+
+        });
+
+        const IDResponseElement = document.getElementById("IDResponse");
+
+
+
+
+
+        sendFileButton.addEventListener("click", (e) => {
+
+            const targetID = targetIDInputElement.value;
+            const connection = peer.connect(targetID);
+            const f = fileUploadInputElement.files[0];
+            // Send the file data to the connected peer
+            console.log("sending");
+            setTimeout(() => {
+
+                connection.send(f);
+            }, 1000);
+
+        })
+
+    </script>
+</body>
+
+</html>
